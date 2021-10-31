@@ -119,41 +119,43 @@ who signed up. Try not to use the LIMIT clause for your solution. */
 SELECT firstname, surname, joindate
 FROM Members
 ORDER BY joindate DESC
-LIMIT 5;
+#LIMIT 5;
 
 */
 
 /*--------------------------------------------------------------------------------------*/
 
-///////////////////* Q7: Produce a list of all members who have used a tennis court.
+/* Q7: Produce a list of all members who have used a tennis court.
 Include in your output the name of the court, and the name of the member
 formatted as a single column. Ensure no duplicate data, and order by
 the member name. */
 
 /* Q7 Answer:
-SELECT DISTINCT m.firstname, m.surname, f.name
+SELECT DISTINCT (m.firstname || ' ' || m.surname) as fullname, f.name
 FROM Bookings as b
 LEFT JOIN Facilities as f
 ON b.facid = f.facid
 LEFT JOIN Members as m
 ON b.memid = m.memid
 WHERE b.facid in (0,1)
-Order by m.firstname, m.surname;
+Order by fullname;
 
 */
 
 /*--------------------------------------------------------------------------------------*/
 
 
-////////* Q8: Produce a list of bookings on the day of 2012-09-14 which
+/* Q8: Produce a list of bookings on the day of 2012-09-14 which
 will cost the member (or guest) more than $30. Remember that guests have
 different costs to members (the listed costs are per half-hour 'slot'), and
 the guest user's ID is always 0. Include in your output the name of the
 facility, the name of the member formatted as a single column, and the cost.
 Order by descending cost, and do not use any subqueries. */
 
-
-SELECT f.name, firstname, surname, (slots * guestcost) as guest_cost, (slots * membercost) as mem_cost
+SELECT f.name, (firstname || ' ' || surname) as name,
+	(CASE WHEN b.memid != 0 AND slots * membercost > 30 THEN slots * membercost
+	WHEN b.memid = 0 AND slots * guestcost > 30 THEN slots * guestcost
+	END) as cost
 FROM Bookings as b
 LEFT JOIN Facilities as f
 ON b.facid = f.facid
@@ -162,40 +164,28 @@ ON b.memid = m.memid
 WHERE starttime LIKE '2012-09-14%'
 AND (b.memid != 0 AND slots * membercost > 30 OR
 b.memid = 0 AND slots * guestcost > 30)
-ORDER BY guest_cost, mem_cost DESC
+ORDER BY cost DESC
 ;
+
 
 /*--------------------------------------------------------------------------------------*/
 
 
-///////////* Q9: This time, produce the same result as in Q8, but using a subquery. */
+/* Q9: This time, produce the same result as in Q8, but using a subquery. */
 
-WITH guest as (
-    SELECT f.name, (b.slots * f.guestcost) as cost
-    FROM FROM Bookings as b
-    LEFT JOIN Facilities as f
-	ON b.facid = f.facid)
 
-WITH mem as (
-    SELECT f.name, (b.slots * f.membercost) as cost
-    FROM FROM Bookings as b
-    LEFT JOIN Facilities as f
-	ON b.facid = f.facid)
-
-SELECT f.name, firstname, surname, cost
+SELECT f.name, (firstname || ' ' || surname) as name,
+	(CASE WHEN b.memid != 0 AND slots * membercost > 30 THEN slots * membercost
+	WHEN b.memid = 0 AND slots * guestcost > 30 THEN slots * guestcost
+	END) as cost
 FROM Bookings as b
-LEFT JOIN guest as g
-ON b.facid = g.facid
-
-SELECT f.name, firstname, surname, cost
-FROM Bookings as b
-LEFT JOIN mem
-ON b.facid = mem.facid
-
+LEFT JOIN Facilities as f
+ON b.facid = f.facid
 LEFT JOIN Members as m
 ON b.memid = m.memid
 WHERE starttime LIKE '2012-09-14%'
-AND (b.memid != 0 AND slots * cost > 30 
+AND (b.memid != 0 AND slots * membercost > 30 OR
+b.memid = 0 AND slots * guestcost > 30)
 ORDER BY cost DESC
 ;
 
@@ -206,6 +196,14 @@ ORDER BY cost DESC
 Export the country club data from PHPMyAdmin, and connect to a local SQLite instance from Jupyter notebook 
 for the following questions.  
 
+import sqlite3
+connection = sqlite3.connect('sqlite_db_pythonsqlite.db')
+print("Opened database successfully")
+cursor = connection.cursor()
+#df = pd.read_sql_query(query, connection)
+#connection.close()
+
+
 QUESTIONS:
 /*--------------------------------------------------------------------------------------*/
 
@@ -213,16 +211,69 @@ QUESTIONS:
 The output of facility name and total revenue, sorted by revenue. Remember
 that there's a different cost for guests and members! */
 
+SELECT f.name,
+	SUM(CASE WHEN b.memid != 0 THEN slots * membercost
+	WHEN b.memid = 0 THEN slots * guestcost
+	END) as revenue
+FROM Bookings as b
+LEFT JOIN Facilities as f
+ON b.facid = f.facid
+LEFT JOIN Members as m
+ON b.memid = m.memid
+GROUP BY f.facid 
+ORDER BY revenue DESC
+;
+
+rows = cursor.execute("SELECT f.name, SUM(CASE WHEN b.memid != 0 THEN slots * membercost WHEN b.memid = 0 THEN slots * guestcost END) as revenue FROM Bookings as b LEFT JOIN Facilities as f ON b.facid = f.facid LEFT JOIN Members as m  ON b.memid = m.memid GROUP BY f.facid ORDER BY revenue DESC").fetchall()
+print(rows)
+
 /*--------------------------------------------------------------------------------------*/
 
 /* Q11: Produce a report of members and who recommended them in alphabetic surname,firstname order */
+
+
+SELECT (m1.surname || ' ' || m1.firstname) as member, (m2.surname || ' ' || m2.firstname) as reco_mem
+FROM Members as m1
+LEFT JOIN Members as m2
+ON m1.recommendedby = m2.memid
+ORDER BY member
+
+rows = cursor.execute("SELECT (m1.surname || ' ' || m1.firstname) as member, (m2.surname  || ' ' ||  m2.firstname) as reco_mem FROM Members as m1 LEFT JOIN Members as m2 ON m1.recommendedby = m2.memid ORDER BY member").fetchall()
+print(rows)
 
 /*--------------------------------------------------------------------------------------*/
 
 /* Q12: Find the facilities with their usage by member, but not guests */
 
+SELECT f.name, (firstname || ' ' || surname) as name,
+	SUM(CASE WHEN b.memid != 0 THEN slots * 0.5
+	END) as mem_hr_use
+FROM Bookings as b
+LEFT JOIN Facilities as f
+ON b.facid = f.facid
+LEFT JOIN Members as m
+ON b.memid = m.memid
+WHERE b.memid != 0
+GROUP BY f.facid, b.memid
+ORDER BY mem_hr_use DESC
+
+rows = cursor.execute("SELECT f.name, (firstname || ' ' || surname) as name, SUM(CASE WHEN b.memid != 0 THEN slots * 0.5 END) as mem_hr_use FROM Bookings as b LEFT JOIN Facilities as f ON b.facid = f.facid LEFT JOIN Members as m ON b.memid = m.memid WHERE b.memid != 0 GROUP BY f.facid, b.memid ORDER BY mem_hr_use DESC").fetchall()
+print(rows)
+
 /*--------------------------------------------------------------------------------------*/
 
 /* Q13: Find the facilities usage by month, but not guests */
+
+SELECT f.name,MONTH(starttime), YEAR(starttime),
+	SUM(CASE WHEN b.memid != 0 THEN slots * 0.5
+	END) as mem_hr_use
+FROM Bookings as b
+LEFT JOIN Facilities as f
+ON b.facid = f.facid
+LEFT JOIN Members as m
+ON b.memid = m.memid
+WHERE b.memid != 0
+GROUP BY f.facid, MONTH(starttime)
+ORDER BY mem_hr_use DESC
 
 /*--------------------------------------------------------------------------------------*/
